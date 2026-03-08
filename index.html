@@ -294,7 +294,7 @@
         <input type="text" id="tx-desc" placeholder="e.g. Lost the bet about...">
       </div>
     </div>
-    <button class="btn-primary" onclick="doTransaction()">SUBMIT TRANSACTION</button>
+    <button id="submit-btn" class="btn-primary" onclick="doTransaction()">SUBMIT TRANSACTION</button>
     <div class="msg-success" id="tx-success">✦ Transaction recorded successfully! ✦</div>
     <div class="msg-error" id="tx-error"></div>
   </div>
@@ -313,7 +313,7 @@
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-app.js";
-import { getFirestore, doc, getDoc, onSnapshot, collection, query, orderBy, limit, runTransaction, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-firestore.js";
+import { getFirestore, doc, getDoc, onSnapshot, collection, query, orderBy, limit, runTransaction, serverTimestamp, updateDoc, addDoc } from "https://www.gstatic.com/firebasejs/12.2.1/firebase-firestore.js";
 
 const firebaseConfig = {
   "apiKey": "AIzaSyA_gWoEqdsezg54-T-31UpDi3UPRuE0m9o",
@@ -492,6 +492,7 @@ async function doTransaction() {
   const pass   = document.getElementById('tx-pass').value;
   const errEl  = document.getElementById('tx-error');
   const okEl   = document.getElementById('tx-success');
+  const submitBtn = document.getElementById('submit-btn');
   errEl.style.display='none';
   okEl.style.display='none';
 
@@ -506,26 +507,29 @@ async function doTransaction() {
   }
 
   const balRef = doc(db, "balances", "main");
-  const txRef = doc(collection(db, "transactions"));
   try {
-    await runTransaction(db, async (transaction) => {
-      const snap = await transaction.get(balRef);
-      if (!snap.exists()) throw new Error("Balances document is missing.");
-      const data = snap.data();
-      const fromBal = Number(data[from] || 0);
-      const toBal = Number(data[to] || 0);
-      if (fromBal < amount) throw new Error(`Not enough. ${from} only has ${fmt(fromBal)}.`);
-      transaction.update(balRef, {
-        [from]: fromBal - amount,
-        [to]: toBal + amount
-      });
-      transaction.set(txRef, {
-        from,
-        to,
-        amount,
-        desc,
-        timestamp: serverTimestamp()
-      });
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'PROCESSING...';
+
+    const snap = await getDoc(balRef);
+    if (!snap.exists()) throw new Error("Balances document is missing.");
+    const data = snap.data();
+    const fromBal = Number(data[from] || 0);
+    const toBal = Number(data[to] || 0);
+
+    if (fromBal < amount) throw new Error(`Not enough. ${from} only has ${fmt(fromBal)}.`);
+
+    await updateDoc(balRef, {
+      [from]: fromBal - amount,
+      [to]: toBal + amount
+    });
+
+    await addDoc(collection(db, "transactions"), {
+      from,
+      to,
+      amount,
+      desc,
+      timestamp: serverTimestamp()
     });
 
     okEl.textContent = 'Transaction recorded and synced live.';
@@ -534,8 +538,12 @@ async function doTransaction() {
     document.getElementById('tx-desc').value='';
     document.getElementById('tx-pass').value='';
   } catch (error) {
+    console.error(error);
     errEl.textContent = error.message || 'Transaction failed.';
     errEl.style.display='block';
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'SUBMIT TRANSACTION';
   }
 }
 
